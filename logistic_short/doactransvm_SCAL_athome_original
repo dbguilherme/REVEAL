@@ -1,0 +1,315 @@
+#!/bin/bash
+
+echo "starting scal logistic short athome1 "
+export LANG=C
+export LC_ALL=C
+R=100
+echo "diretorio atual é "
+echo `pwd`
+
+# 
+# L=10
+# R=100
+
+TOPIC=$1
+#NDOCS=`cat docfils | wc -l`
+total_relevantes=0
+
+#if [ -f seed.$TOPIC ]; then
+#    cat seed.$TOPIC > seed.$TOPIC
+#else
+#    echo "file not exists /tmp/seed_syntetic"
+#fi
+
+#cat seed.$TOPIC >  doceliminate
+
+rm -f new*.$TOPIC tail*.$TOPIC self*.$TOPIC gold*.$TOPIC
+rm -f sub_new*.$TOPIC 
+touch doceliminate
+touch new00.$TOPIC
+#rm rel.$TOPIC.fil
+rm -f trainset
+#ln svm.fil.sort svm.fil
+# 
+
+#ordena o gabarito
+sort rel.$TOPIC.fil > temp
+mv temp rel.$TOPIC.fil
+
+
+# 1: Find a relevant seed document using ad-hoc search, or # construct a synthetic relevant document from the topic # description.
+# 2: The initial training set consists of the seed docrecaument identified in step 1, labeled “relevant.”
+
+echo "# 3: Draw a large uniform random sample U of size N from the document population."
+    #shuf -n  $NDUN  docfils | cut -d$'\t' -f2  > sample.$TOPIC
+
+
+echo "# 4: Select a sub-sample size n."
+   # cat sample.$TOPIC | shuf -n 30 | cut -d$'\t' -f2   > sub_N.$TOPIC
+
+echo "# 4: join 1 sub- sample."
+    #./dd_script.sh  sample.201 > sample.fill
+    #ln svm.fil w
+    
+    cat $TOPIC.svm.fil | sort -k1 > w
+    #ln -s $TOPIC.svm.fil w
+ #   rm w
+#    ln -s athome2vQi9o.svm.fil.binary.sort.synthetic.cutted w
+#    ln  athome1mu4x7.frequency2_ground w
+    #sort -k2 sample.$TOPIC | join -11 -21 - svm.fil  > sample.fill
+    #sort -k2 sample.$TOPIC | join -11 - svm.fil |  sort -n > sample.fill
+
+echo "# 4: join 2 sub- sample."
+    #sort -k2 seed.$TOPIC | join - -12 -21  svm.fil  >> sample.fill
+    #./dd_script.sh  seed.$TOPIC >> sample.fill
+    #cat sample.fil | sort -k1 | uniq > temp 
+    #mv temp sample.fill
+    #ln sample.fil w
+
+    #cat w | join -  -1 1 rel.201.fil | cut -d' ' -f2- | sed -e 's/^/1 /'  > sample.labelled
+    #cat w | join -  -1 1 rel.201.fil -v1 | cut -d' ' -f2- | sed -e 's/^/-1 /' >> sample.labelled
+    
+echo "# 5: Set the initial batch size B to 1."
+    B=1
+
+echo "produce labelled ids"
+    cat w | cut -d' ' -f1 | tr -d ' ' > docfils_original.$TOPIC    
+    sort  docfils_original.$TOPIC > docfils_temp.$TOPIC
+
+   export NDUN=`wc -l < docfils_temp.$TOPIC`
+
+#cat seed.$TOPIC.fil  | sort | uniq > lixo.$TOPIC
+#shuf -n 500 lixo.$TOPIC > seed.short.athome2.$TOPIC
+   
+echo "# 6: Set R̂ to 0."
+    R=0
+    labelEffort=0
+    truePositive=0
+    i=0
+    export u_size=`wc -l < w`
+    echo "u_size $u_size----"
+    
+    while [ $u_size -gt 1000 ]
+    do
+        i=$(($i+1))
+        export N=$i
+        
+        #carrega todos os pares rotulados
+        cat  sub_new*.$TOPIC  | uniq > seed.temp.$TOPIC    
+        echo "selecionadas  `wc -l seed.temp.$TOPIC    `"
+        cat  seed.short.athome2.$TOPIC  | uniq >>  seed.temp.$TOPIC    
+        echo "total  `wc -l seed.temp.$TOPIC    `"
+        
+        cat seed.temp.$TOPIC | sort | uniq | join - rel.$TOPIC.fil | cut -d' ' -f1 | sed -e 's/^/1 /' > x.$TOPIC
+        cat seed.temp.$TOPIC  | sort | uniq | join - rel.$TOPIC.fil -v1 | cut -d' ' -f1 | sed -e 's/^/-1 /' >> x.$TOPIC
+#        if [ "$i" -eq 1 ] 
+#         then
+        
+                echo "# 7: Temporarily augment the training set by adding 100 random documents from the U , temporarily labeled “not relevant.”"
+                #find 100 random docs
+                cat docfils_temp.$TOPIC | shuf -n 100 | sort | cut -d' ' -f1 | sed -e 's/^/-1 /' >> x.$TOPIC
+                sort  x.$TOPIC  -k2 > x_sort.$TOPIC
+                #join x_sort x_sort_temp      -v2
+                #join x_sort_temp x_sort  -v2 -1 2 -2 2 -o 2.1,2.2 > x_diff
+                #./dd_script.sh  x_sort > trainset
+                cat x_sort.$TOPIC | cut -d' ' -f2 | sort | join - w   -2 1  > trainset.$TOPIC
+                #cp x_sort  x_sort_temp      
+                echo "x_ssort  `wc -l x_sort.$TOPIC`"
+                sort trainset.$TOPIC -k1 | join  x_sort.$TOPIC - -12 -21 | cut -d' ' -f2- > trainset_final.$TOPIC
+                cat wahono.synthetic.seed  >> trainset_final
+#         else
+#                 echo "only add diff files"
+#                 sort  x  -k2 > x_sort
+#                 join x_sort_temp x_sort  -v2 -1 2 -2 2 -o 2.1,2.2 > x_diff
+#                 #./dd_script.sh  x_diff >> trainset
+#                 cat x_diff | cut -d' ' -f2 | sort | join - w   -2 1  >> trainset
+#                 cat x_sort_temp > x_sortXXX
+#                 cat x >> x_sortXXX
+#                 sort -k2 x_sortXXX  | uniq   > x_sort
+#                 rm x_sortXXX
+#                 
+#                 
+#                 sort trainset -k1 | join  x_sort - -12 -21 | cut -d' ' -f2- > trainset_final
+#                 cp x_sort x_sort_temp
+#                 echo "trainset_final `wc -l trainset_final`"
+#         fi
+        
+   
+
+#     echo "# 8: Construct a classifier from the training set.XXXXXXXXXXXXXXXX"
+#         #sort -k2 x | join -12 - w | cut -d' ' -f2-  | sort -n > trainset
+#         sort  x  -k2 > x_sort
+#         #join x_sort x_sort_temp      -v2
+#         join x_sort_temp x_sort  -v2 -1 2 -2 2 -o 2.1,2.2 > x_diff
+#         ./dd_script.sh  x_diff >> trainset
+#         
+#         cat x_diff >> x_sort_temp      
+#        
+        
+    
+        
+    echo " run classifier"    
+        ../sof*/src/sof*ml --iterations 2000000 --training_file trainset_final.$TOPIC --dimensionality 3300000 --model_out svm_model.$TOPIC
+        
+         MAXTHREADS=20
+         RES=$?
+         echo "res $RES"
+               if [ "$RES" -eq "0" ] ; then
+                 for z in athome2vQi9o.hical.cutted0* ; do
+#		  for z in athome2vQi9o.svm.fil.binary.sort.synthetic.cutted0* ; do 
+#athome1mu4x7.frequency2_ground
+                     while [ "$(jobs | grep 'Running' | wc -l)" -ge "$MAXTHREADS" ]; do
+                         sleep 1
+                     done
+                     echo $z
+                       ../sof*/src/sof*ml --test_file $z --dimensionality 3300000 --model_in svm_model.$TOPIC --results_file pout.$z.$TOPIC &
+                       #sleep 10
+                       echo "get file $z"
+                       # ../sof*/src/sof*ml --test_file /dev/shm/athome1.svm.fil.sort --dimensionality 3300000 --model_in svm_model --results_file pout.svm.test.000
+                     #/home/user/svmlight/svm_classify $z svm_model pout.$z
+                  done
+                  wait
+               else
+                 echo "nao sei o que faz isso\n\n"
+                 # rm -f pout.svm.test.*
+                 # cut -f2 docfils | sort -R | cat -n | sort -k2 | sed -e 's/ */-/' > pout.svm.test.1
+               fi
+        
+        cp svm_model svm_model$N
+
+    echo "# 10: Select the highest-scoring B  $B documents from U ."
+        #eliminate the pairs alread processed    
+       rm pout
+       cat pout.athome2vQi9o.hical.cutted0{0..20}.*  >> pout 2>/dev/null
+       # cat pout.* > pout
+       python3 sort.py docfils_original.$TOPIC pout doceliminate 1 $TOPIC
+       
+       
+        #cat newtopic.sort | sort -k1 | join -v2 - -11 docfils_orginal > newtopic.sortB
+       
+        tail -$B  newtopic.sort.$TOPIC  | cut -d' ' -f1 >  new$N.$TOPIC
+
+    echo "11: If R̂ = 1 or B ≤ n, let b = B; otherwise let b = n."
+    
+    echo "valor atual do B ---- $B e do b é $b"
+        if [ "$R" -eq 1 ] || [ "$B" -le 30 ]
+        then
+                export b=`echo $B`
+        
+        else
+                export b=`echo 30`
+        
+        fi
+        
+            echo "valor do b $b"
+            
+            
+    echo "# 12: Draw a random sub-sample of size b from the B docu-ments."
+        shuf -n $b  new$N.$TOPIC > sub_new$N.$TOPIC
+
+        
+    echo  " 13: Review the sub-sample, labeling each as “relevant” or “not relevant.”"
+        labelEffort=$(($labelEffort+$b))
+
+
+    # 14: Add the labeled sub-sample to the training set.
+
+    echo "# 15: Remove the B documents from U ."
+        sort  new$N.$TOPIC | join -v2 - docfils_temp.$TOPIC > temp 
+        mv temp docfils_temp.$TOPIC
+        #guarda id documentos eliminados 
+        cat new$N.$TOPIC >> doceliminate
+        
+        echo "                      novo valor para o sample `wc -l docfils_temp.$TOPIC`   numero elimandos `wc -l doceliminate`"
+    echo "# 16: Add r·B  to R̂, where r is the number of relevant documents in the sub-sample."
+
+        export r=`cat sub_new$N.$TOPIC | sort | uniq | join - rel.$TOPIC.fil | uniq | wc -l`
+        export total=`cat sub_new$N.$TOPIC |  wc -l`
+    echo "numero de documentos relevantes coletados---- $r de um total de $total"
+    #cat sub_new$N.$TOPIC
+
+
+        temp=$(($r*$B))
+        temp1=$(($temp/$b))
+        export R=$(($R+$temp1))
+        
+        echo "novo R $R---"
+        echo "$i $R" >> valor_R
+        cat newtopic.sort.$TOPIC > U$N
+    echo "# 17: Increase B by 10"
+
+        temp=`echo "scale=5; ($B / 10)" | bc`
+
+        int=`echo $temp |  awk '{print ($0-int($0)>0)?int($0)+1:int($0)}'`
+        echo "temp ----------$temp----- $int"
+        #int=${temp%.*}
+        export B=$(($B+$int))
+
+        echo "novo B ---- $B"
+
+       
+
+
+        RELTRAINDOC=`grep -E "^1\b" trainset_final | wc -l`
+        NOTRELTRAINDOC=`grep -E "^-1\b" trainset_final | wc -l`
+        PREVALENCERATE=`echo "scale=4; $RELTRAINDOC / ($RELTRAINDOC + $NOTRELTRAINDOC)" | bc`
+        #echo $RELTRAINDOC $NOTRELTRAINDOC $PREVALENCERATE
+        truePositive=$(($RELTRAINDOC))
+        
+        echo "----------------------------------------$labelEffort  $truePositive"
+
+
+
+    # 18: Repeat steps 7 through 16 until U is exhausted.
+    # 19: Train the final classifier on all labeled documents.
+        u_size=`wc -l < docfils_temp.$TOPIC`    
+        
+
+done   
+echo " 20: Estimate ρ̂ = 1.05 "
+    export prevalence=`echo "scale=8; ($R * 1.05) / $NDUN  " | bc`
+    echo "prevalence $prevalence"        
+    export m=`echo "scale=8; ($prevalence * $NDUN * 1.00) * 0.90 " | bc`           
+    int=${m%.*}
+        
+echo "# 19: Train the final classifier on all labeled documents."
+
+    cat seed.$TOPIC sub_new*.$TOPIC  | uniq > seed
+    cat seed | sort | uniq | join - rel.$TOPIC.fil | cut -d' ' -f1 | sed -e 's/^/1 /' > x
+    cat seed | sort | uniq | join - rel.$TOPIC.fil -v1 | cut -d' ' -f1 | sed -e 's/^/-1 /' >> x      
+    sort -k2 x | join -12 - w | cut -d' ' -f2-  | sort -n > trainset
+    ../sof*/src/sof*ml --iterations 2000000 --training_file trainset --dimensionality 1100000 --model_out svm_model
+      
+        
+   # ../sof*/src/sof*ml --test_file athome2vQi9o.svm.fil.binary.sort.synthetic.cutted.semlabel --dimensionality 3300000 --model_in svm_model --results_file pout 
+    for z in athome2vQi9o.hical.cutted0* ; do
+         ../sof*/src/sof*ml --test_file $z --dimensionality 1100000 --model_in svm_model --results_file pout.$z &
+    done
+    cat pout.athome2vQi9o.hical.cutted0{0..20}.*  >> pout 2>/dev/null
+    cat w | cut -d' ' -f1 | tr -d ' ' > docfils_temp.$TOPIC
+ 
+    python3 sort.py docfils_temp.$TOPIC pout seed 0 $TOPIC
+    python3 selectT.py valor_R $int
+    export j=`cat flagOut `
+    
+    
+    # 
+    export t=`wc -l < U$j`
+
+    temp=$(($NDUN-$t))
+
+        
+    tail -$temp newtopic.sort.$TOPIC > result
+        
+    cat x | cut -d' ' -f2 >>result
+        
+    echo "valor t =$t valor j =$j valor temp =$temp"
+
+
+    export r=`cat result | cut -d' ' -f1 | sort -k1 |  uniq | join - rel.$TOPIC.fil |  wc -l`
+
+    total=`wc -l < rel.$TOPIC.fil`
+    recall=`echo "scale=5; ($r / $total)" | bc`
+    precisao=`echo "scale=5; ($r / $temp)" | bc`
+    echo "resultado final $TOPIC $r ------$temp  recall $recall  precisao $precisao"
+

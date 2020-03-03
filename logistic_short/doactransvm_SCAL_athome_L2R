@@ -1,0 +1,617 @@
+
+#!/bin/bash
+
+echo "starting SCAL using $1 dataset. The features generation uses is word-based tf-idf at `date` and Topic "
+export LANG=C
+export LC_ALL=C
+
+start0=`echo $(($(date +%s%N)/1000000))`
+start=`echo $(($(date +%s%N)/1000000))`
+
+
+TOPIC=$1
+file=$2
+JUDGECLASS=$1
+echo "JUDGECLASS $JUDGECLASS $3"
+#give alias to the collection.
+ln -s $file  w
+rules=5
+sliding_windows=20
+
+
+rm -f new*.$TOPIC tail*.$TOPIC self*.$TOPIC gold*.$TOPIC
+rm -f sub_new*.$TOPIC 
+touch doceliminate
+touch new00.$TOPIC
+rm -f trainset
+
+
+echo "0 : Produce labelled ids"
+#produce the id file 
+cat w | cut -d' ' -f1 | tr -d ' ' > docfils_original.$TOPIC    
+sort  docfils_original.$TOPIC > docfils_temp.$TOPIC
+
+#computing the number of documents 
+export NDOCS=`wc -l < docfils_temp.$TOPIC`
+
+
+echo  "1: Find a relevant seed document using ad-hoc search. (I try to use a synthetic relevant document from the topic without success too)"
+cat $TOPIC.synthetic.seed > seed.short.$TOPIC
+
+#apagar
+#shuf -n 1 rel.$TOPIC.fil > ssarp99.$TOPIC
+
+
+rm rel.$TOPIC.fil
+touch rel.$TOPIC.fil
+    
+sed -e 's/[^ ]*/0/' $file | ./dosplit
+cut -d' ' -f1 $file | sed -e 's/.*/& &/' > docfil
+cut -d' ' -f1 docfil | cat -n > docfils
+
+#classifier
+SOFIA="/media/Lun02_Raid0/guilherme/tar/tar/sofia-ml-read-only/sofia-ml"
+
+#initial variables
+MAXTHREADS=40
+Rel=0
+B=0
+NDOCS=`cat docfils | wc -l`
+NDUN=0
+L=1
+R=100
+start_slop=0
+flag=0
+flag_slop=0
+flag_discretize=0
+CORP=$file
+perda_ac=0
+flag_allac_first_time=1
+NotRel=0
+memoryRelevant=()
+
+#Entropy_temp_rel=0
+#entropyRel=0
+#impurity=0
+
+StopPoint=0
+
+export LAMBDA=0.0001
+
+#L2R
+#python3 feature_extraction_reveal.py $TOPIC
+
+#index
+KEYSIZE=$(awk 'BEGIN{a=0}{len = length($1); a=a<len?len:a}END{print a}' w)
+VALSIZE=$(awk 'BEGIN{a=0}{len = length($0); a=a<len?len:a}END{print a}' w)
+KEYSIZE=$((KEYSIZE+2))
+VALSIZE=$((VALSIZE+2))
+
+     
+
+if [ ! -f ../"$CORP".db ]; then
+        rm ../"$CORP".db
+        echo "Indexing $file, keysize = $KEYSIZE, valsize = $VALSIZE"
+        ./indexer w ../"$CORP".db $KEYSIZE $VALSIZE || (echo "Error creating db"; exit 1)
+   fi
+rm ../"$CORP".L2R.db
+
+
+#if [ ! -f ../"$CORP".L2R.db ]; then
+
+        cut -d' ' -f9 $TOPIC.L2R > tempL2R        
+        sed -e 's/\t/ /g' docfils | sed -e  's/  / /g' | sed -e 's/^ *//' | sort -k1   > docfils_sorted
+        cat tempL2R | sort  | join - docfils_sorted -2 1  | cut -d ' ' -f2 | sort > temp1L2R
+        paste temp1L2R $TOPIC.L2R -d ' '  > $TOPIC.L2R2        
+        ./indexer $TOPIC".L2R2" ../"$CORP".L2R.db $KEYSIZE $VALSIZE || (echo "Error creating db"; exit 1)
+#fi
+
+
+
+end=`echo $(($(date +%s%N)/1000000))`
+runtime=$((end-start))
+echo "preprocessing time is $runtime"
+
+for x in {0..9} ; do
+    if [ "$flag_slop" -eq "1" ] ;
+    then
+        echo "stopping because slop"
+        break
+    fi
+    for y in {0..9} ; do
+        if [ $NDUN -lt $NDOCS ] ; then
+            N=$x$y
+            if [ $flag_slop -eq "1" ] ;
+            then
+                break;
+            fi
+            
+	    start=`echo $(($(date +%s%N)/1000000))`
+            
+            #collecting the seed and  100  random pairs  to compose the training set
+            cp seed.short.$TOPIC trainset.$TOPIC
+            cut -f2 docfils | shuf -n $R | sort | sed -e's/^/-1 /'  >  trainsetID.$TOPIC   
+            cat trainsetID.$TOPIC | cut -d' ' -f2 | ../indexer ../"$CORP".db $KEYSIZE $VALSIZE | sed -e's/[^ ]*/-1/' >> trainset1.$TOPIC 
+            
+            #cat ../rel.$TOPIC.fil | shuf -n 5 | sed -e's/^/1 /' >>  trainsetID.$TOPIC   
+             
+            #collecting the already labeled pairs 
+            cat ssarp[0-9][0-9].$TOPIC > seed.$TOPIC
+           
+            cat seed.$TOPIC | sort | join - rel.$TOPIC.fil | sed -e 's/^/1 /' | sort | uniq > x.$TOPIC
+            cat seed.$TOPIC | sort | join -v1 - rel.$TOPIC.fil | shuf -n 50000 | sed -e 's/^/-1 /' | sort | uniq  >> x.$TOPIC
+            cut -d' ' -f2 x.$TOPIC | ../indexer ../$CORP.db $KEYSIZE $VALSIZE | cut -d' ' -f2- | paste -d' ' <(cut -d' ' -f1 x.$TOPIC) - | sort -n > trainset2.$TOPIC               
+               
+            
+            cat  x.$TOPIC >> trainsetID.$TOPIC  
+            cut -d' ' -f2 trainsetID.$TOPIC | sort | uniq  | ../indexer ../$CORP.L2R.db $KEYSIZE $VALSIZE  > trainingset.L2R
+            
+            cat trainset1.$TOPIC trainset2.$TOPIC >> trainset.$TOPIC
+            
+            trainsize=`wc -l <  trainset.$TOPIC`
+            
+            if [ "$trainsize" -le "1" ] ; then
+                echo "training set size is empty:  $trainsize"
+                echo "trainingset id `wc -l <trainsetID.$TOPIC`" 
+                echo "docfils `wc -l <docfils`" 
+                echo "trainset1.$TOPIC `wc -l <trainset1.$TOPIC`" 
+                break;
+                flag_slop=1
+            fi
+            
+            
+            cp trainset2.$TOPIC lixotrainset2.$TOPIC
+            rm trainset1.$TOPIC trainset2.$TOPIC
+
+            echo "trainset size ` wc -l < trainset.$TOPIC`"
+            #1 qid:1 1:1.0 2:0.0 3:1.4129930843048069 4:0.010869565217391304 5: # 8911
+            #Calculate relevant documents prevalence rate in the traning set            
+            RELTRAINDOC=`grep -E "^1\b" trainset.$TOPIC | wc -l`
+            NOTRELTRAINDOC=`grep -E "^-1\b" trainset.$TOPIC | wc -l`
+            PREVALENCERATE=`echo "scale=4; $RELTRAINDOC / ($RELTRAINDOC + $NOTRELTRAINDOC)" | bc`
+            echo $RELTRAINDOC $NOTRELTRAINDOC $PREVALENCERATE >> prevalence.rate
+            echo "relevantes $RELTRAINDOC $NOTRELTRAINDOC $PREVALENCERATE"            
+                        
+            #run classifier
+            startTemp=`echo $(($(date +%s%N)/1000000))`
+            $SOFIA --learner_type logreg-pegasos --loop_type roc --lambda $LAMBDA\
+                --iterations 200000 --training_file trainset.$TOPIC --dimensionality 4000000 --model_out svm_model.$TOPIC #&> /dev/null 
+            end=`echo $(($(date +%s%N)/1000000))`
+            runtime=$((end-startTemp))
+           # echo "training time is $runtime"
+            startTemp=`echo $(($(date +%s%N)/1000000))`
+            RES=$?              
+            if [ "$RES" -eq "0" ] ; then
+                for z in svm.test.* ; do
+                    while [ "$(jobs | grep 'Running' | wc -l)" -ge "$MAXTHREADS" ]; do
+                        sleep 1
+                    done
+                    $SOFIA --test_file $z --dimensionality 4000000 --model_in svm_model.$TOPIC --results_file pout.$z.$TOPIC  &> /dev/null &
+                    
+                done
+                wait
+            else
+                rm -f pout.svm.test.*
+#                   cut -f2 docfils | sort -R | cat -n | sort -k2 | sed -e 's/ */-/' > pout.svm.test.1
+            fi
+            end=`echo $(($(date +%s%N)/1000000))`
+            runtime=$((end-startTemp))
+            #echo "prediction time is $runtime"
+            startTemp=`echo $(($(date +%s%N)/1000000))`
+#             
+#             
+#             
+            cat new[0-9][0-9].$TOPIC > seed.$TOPIC
+            cut -f1 pout.svm.test.* | ../fixnum | cat -n | join -o2.2,1.2 -t$'\t' - docfils > inlr.out.$N.$TOPIC
+            
+            sort -k1  inlr.out.$N.$TOPIC > temp
+            mv temp  inlr.out.$N.$TOPIC
+            #create L2R training file
+            #cat 
+           
+           
+           
+            echo "starting L2R"
+            cat trainingset.L2R | cut -d'#' -f1 | sort -k1  | join - inlr.out.$N.$TOPIC -1 1 -2 1 | cut -d' ' -f2- |     sed -e  's/:  /:/g'  > trainingset.L2R.SVM
+            
+
+
+            cat $TOPIC.L2R | cut -d'#' -f1 > $TOPIC.L2R.temp
+           # tail -n +2  inlr.out.$N.$TOPIC | cut -d$'\t' -f2 | cut -d'#' -f1|  paste $TOPIC.L2R.temp - -d '' |  sed -e  's/: /:/g' > $TOPIC.L2R.SVM
+            cat  inlr.out.$N.$TOPIC | cut -d$'\t' -f2 | cut -d'#' -f1|  paste $TOPIC.L2R.temp - -d '' |  sed -e  's/: /:/g' > $TOPIC.L2R.SVM
+#             
+
+           # cat trainingset.L2R | cut -d' ' -f2,3,4,5,6,7 > trainingset.L2R.SVM
+           # cat seed_synthetic.$TOPIC`echo 2` >>trainingset.L2R.SVM
+            #cat  $TOPIC.L2R  | cut -d' ' -f1,2,3,4,5,6 > $TOPIC.L2R.SVM
+            #java -jar RankLib-2.13-SNAPSHOT.jar  -train trainingset.L2R.SVM -ranker 6 -metric2t ERR@10 -save /tmp/LMmodel.txt &> temp
+            
+            java -jar RankLib-2.13-SNAPSHOT.jar  -train trainingset.L2R.SVM  -ranker 6  -save /tmp/LMmodel$TOPIC.txt &> temp
+            
+            java -jar RankLib-2.13-SNAPSHOT.jar  -load /tmp/LMmodel$TOPIC.txt -rank $TOPIC.L2R.SVM -score score.out.$TOPIC.$N
+            
+            echo "end L2R, starting sorting"
+            #sort -k2 score.out.$N | join - docsfils -1 2 > $TOPIC.L2R.sorted
+            sort -k2 score.out.$TOPIC.$N | join - docfils_sorted -1 2 -2 1 | sort -k4   > $TOPIC.L2R.sorted
+            sort seed.$TOPIC | join -v2 - $TOPIC.L2R.sorted -2 4| shuf |  sort -k 4 -r -g -s  > new$N.$TOPIC.L2R
+echo "header"	    
+#head -$L new$N.$TOPIC.L2R
+head -n 10 new$N.$TOPIC.L2R
+            
+            
+            
+            
+            cut -d$'\t' -f3 score.out.$TOPIC.$N   | head -1000 > rank.$N
+            if [ "$N" -ge "01" ] ; then
+                echo "correlation spearman \n"
+                
+                python3 ../script_test_rank.py rank.$tempN rank.$N >> /tmp/saidaRank
+            
+            fi
+
+            head     -$L new$N.$TOPIC.L2R | cut -d' ' -f1 > new$N.$TOPIC.L2R2
+            cp new$N.$TOPIC.L2R2 new$N.$TOPIC 
+
+           
+#             echo "inl.out size =`wc -l < inlr.out.$N.$TOPIC` docfils  `wc -l <docfils `"
+#             sort seed.$TOPIC | join -v2 - inlr.out.$N.$TOPIC | sort -rn -k2 | cut -d' ' -f1 > new$N.$TOPIC
+#             
+#             
+#             
+             cp new$N.$TOPIC U$N
+#             cat new[0-9][0-9].$TOPIC > x
+#             if [ "$N" != "99" ] ; then
+#                 head -$L new$N.$TOPIC > y ;                    
+#                 mv y new$N.$TOPIC
+#             fi
+           
+                    
+            python2   ../doJudgementMain.py --topic=$TOPIC --judgefile=../judgement/qrels.$JUDGECLASS.list --input=new$N.$TOPIC.L2R2     --output=rel.$TOPIC.Judged.doc.list --record=$TOPIC.record.list 
+            
+            total_relevantes=`wc -l < rel.$TOPIC.Judged.doc.list`
+               
+            #threshold to avoid setting   b when relevat documents is null
+            if [ "$Rel" -le 5000 ] || [ "$L" -le 30 ]
+                then
+                        echo "set b with value equal to $L because $Rel le 5000 or $L < 30"
+                        b=`echo $L`       
+                else
+                        b=`echo 30`       
+                fi
+            
+               
+            #shuf -n $b  new$N.$TOPIC > sub_new$N.$TOPIC
+            
+	    shuf -n $b  new$N.$TOPIC.L2R2 > sub_new$N.$TOPIC.L2R
+
+            cp sub_new$N.$TOPIC.L2R sub_new$N.$TOPIC
+            #cat sub_new$N.$TOPIC
+            python2   ../doJudgementMain.py --topic=$TOPIC --judgefile=../judgement/qrels.$JUDGECLASS.list --input=sub_new$N.$TOPIC --output=rel.$TOPIC.sub_new --record=$TOPIC.record.list.new
+            scal_relevantes=`wc -l < rel.$TOPIC.sub_new`       
+             
+
+
+             
+             echo "$N relevantes total $total_relevantes no sub $scal_relevantes"
+             
+
+            
+            
+
+            cat rel.$TOPIC.Judged.doc.list >> rel.$TOPIC.fil
+            sort rel.$TOPIC.fil > temp
+            mv temp  rel.$TOPIC.fil 
+            cat rel.$TOPIC.Judged.doc.list > rel.$TOPIC.$N.Judged.doc.list
+
+            end=`echo $(($(date +%s%N)/1000000))`
+            runtime=$((end-startTemp))
+           # echo "processing time is $runtime"
+
+                #####################################Active learning
+     
+            if [ "$NotRel" -lt 1 ] || [ "$Rel" -lt 3000 ]
+            then
+                echo "avoid to invoke active learning because training set is small notRel=$NotRel Rel=$Rel"
+               
+                cp sub_new$N.$TOPIC ssarp$N.$TOPIC
+                cat sub_new$N.$TOPIC  | sort | uniq | join - rel.$TOPIC.fil | cut -d' ' -f1 | uniq | sed -e 's/^/1 /'  > x_posit.$N
+            
+                cat sub_new$N.$TOPIC   | sort | uniq | join - rel.$TOPIC.fil -v1 | cut -d' ' -f1 |uniq | sed -e 's/^/-1 /' > x_negat.$N
+      
+                cat  x_negat.*   |  sort -k2  | join - "$file".svd   -2 1 -1 2 > seed_ssarp.$TOPIC
+
+                  
+                cat  x_posit.* | shuf -n 1 | sort -k2  | join - "$file".svd  -2 1 -1 2 >> seed_ssarp.$TOPIC
+
+                    
+                cut -d ' ' -f2- seed_ssarp.$TOPIC  > seed_ssarpB.$TOPIC
+                cp x_posit.$N sub_new_positivo.$N
+                cp x_negat.$N sub_new_negativo.$N
+                ssarp_relevants=`wc -l < x_posit.$N`
+            else
+
+                echo "using active learning"
+                startTemp=`echo $(($(date +%s%N)/1000000))`
+                #create training set
+                cat sub_new$N.$TOPIC | sort | uniq | join - rel.$TOPIC.fil | cut -d' ' -f1 | uniq | sed -e 's/^/1 /' > temp_posit.$N.$TOPIC
+                cat sub_new$N.$TOPIC | sort | uniq | join - rel.$TOPIC.fil -v1 | cut -d' ' -f1 | uniq | sed -e 's/^/-1 /' > temp_negat.$N.$TOPIC
+
+        
+                cat temp_posit.$N.$TOPIC temp_negat.$N.$TOPIC |  sort -k2  | join - "$file".svd  -2 1 -1 2 > label.$N.$TOPIC
+
+
+                cut -d ' ' -f2- label.$N.$TOPIC  > inputSSARP.$N.$TOPIC
+            
+
+                if [ "$flag_discretize" -eq '0' ]
+                then
+                    echo "gerando os bins\n"
+                    echo "python3 ../../svd/convert_txt.py "$file".svd /tmp/total.$TOPIC.arff rel.$TOPIC.fil   "
+                    python3 ../../svd/convert_txt.py "$file".svd /tmp/total.$TOPIC.arff     rel.$TOPIC.fil 
+ 
+                    cd ./SSARP/run/
+                    rm train*
+                    .././gera_bins_TUBE.sh /tmp/total.$TOPIC.arff  50 10 10
+                    
+                    .././discretize_TUBE.pl train-B50    /tmp/total.$TOPIC.arff 50 /tmp/fullAllacfile.$TOPIC
+                    
+                    cd -
+                    echo "saindo da geração dos bins"
+                    flag_discretize=1
+                    
+                fi
+
+
+
+                echo "convertendo arquivo para txt com "
+                python3 ../../svd/convert_txt.py inputSSARP.$N.$TOPIC inputSSARP.$N.$TOPIC.arff rel.$TOPIC.fil
+
+                python3 ../../svd/convert_txt.py seed_ssarpB.$TOPIC seed_out.$N.$TOPIC.arff rel.$TOPIC.fil
+
+                #rm alac_lac_train_TUBE.txt
+                    cp label.$N.$TOPIC ./SSARP/run/
+                    cp seed_out.$N.$TOPIC.arff ./SSARP/run/
+                    cp inputSSARP.$N.$TOPIC.arff ./SSARP/run/
+                
+                
+                
+                ssarpSize=`wc -l <  inputSSARP.$N.$TOPIC.arff`
+            
+#                 if [ "ssarpSize" -le "1" ] ; then
+#                     echo "training set ssarp is empty:  $ssarpSize"
+#                     
+#                     break;
+#                     flag_slop=1
+#                 fi
+                
+                
+                echo "executando alac $rules with `wc -l < inputSSARP.$N.$TOPIC.arff` records"
+                    cd ./SSARP/run/
+                    
+                    
+                    
+                    
+                    echo "./SSARPX.sh inputSSARP.$N.$TOPIC label.$N.$TOPIC 50 $N seed_out.$N.$TOPIC.arff $TOPIC  $rules"
+                    ./SSARPX.sh inputSSARP.$N.$TOPIC label.$N.$TOPIC 50 $N seed_out.$N.$TOPIC.arff $TOPIC  $rules 5
+                    #flag_allac_first_time=$(($flag_allac_first_time+1))
+                    cat label.$N.$TOPIC > /tmp/ssarp$N.$TOPIC
+                    cd -
+                    mv /tmp/ssarp$N.$TOPIC .    
+        
+                    cat sub_new$N.$TOPIC  | sort | uniq | join - rel.$TOPIC.fil | cut -d' ' -f1 | uniq | sed -e 's/^/1 /' > sub_new_positivo.$N
+                    cat sub_new$N.$TOPIC   | sort | uniq | join - rel.$TOPIC.fil -v1 | cut -d' ' -f1 | uniq | sed -e 's/^/-1 /' > sub_new_negativo.$N
+
+                    cat ssarp$N.$TOPIC   | sort | uniq | join - rel.$TOPIC.fil | cut -d' ' -f1 | uniq | sed -e 's/^/1 /' > x_posit.$N
+                    cat ssarp$N.$TOPIC   | sort | uniq | join - rel.$TOPIC.fil -v1 | cut -d' ' -f1 |uniq | sed -e 's/^/-1 /' > x_negat.$N
+
+                    cat x_posit.$N x_negat.$N | cut -d' ' -f2 | sort | uniq > ssarp$N.$TOPIC
+                    ssarp_relevants=`wc -l < x_posit.$N`
+                    
+                    if [ "$ssarp_relevants" -gt "0" ] 
+                    then
+                     start_slop=1
+                    fi
+                    
+                    memoryRelevant+=($ssarp_relevants)
+                   
+                    
+                   # Entropy_temp_rel=$ssarp_relevants
+                    echo "docs positivos coletados `wc -l < x_posit.$N`   docs negativos ----  `wc -l < x_negat.$N` --- docs positivos `wc -l < sub_new_positivo.$N`"
+                    end=`echo $(($(date +%s%N)/1000000))`
+                    runtime=$((end-startTemp))
+               #     echo "ssarp time is $runtime"
+                fi
+    ######################################### end active learning
+#                
+               
+                aux=`wc -l < x_negat.$N`
+                NotRel=$(($NotRel+$aux))  
+        
+                
+                RELFINDDOC=`wc -l < rel.$TOPIC.Judged.doc.list`
+                RELRATE=`echo "scale=4; $RELFINDDOC / $L" | bc`
+                CURRENTREL=`wc -l < rel.$TOPIC.fil`
+               
+            #compute the recal and precision values  
+                r=`cat ssarp*    | cut -d' ' -f1 | sort -k1 |  uniq | join - ../judgement/qrels.$TOPIC.list -21 |  wc -l`
+                finalpares=`cat ssarp* | wc -l`
+                total=`wc -l < ../judgement/qrels.$TOPIC.list`
+                recall=`echo "scale=4; ($r / $total)" | bc`
+                precisao=`echo "scale=4; ($r / $finalpares)" | bc`
+    
+             	echo " precisao $precisao revocacao $recall rotulados $r final $finalpares"
+                
+#                 if [ $finalpares -ge $total ]; then
+#                 
+#                     flag_slop=1
+#                     break;
+#                 fi
+           #compute entropy
+#                 python3 entropy.py $r $(($finalpares -$r)) $N
+#                 echo -e "\e[31m relevants $Entropy_temp_rel  old $entropyRel \e[0m"
+#                 Tempimpurity=`tail -n 1 outEntropy | cut -d' ' -f5`    
+#                 if [ ! -z "$Tempimpurity" ] && [ "`echo "${N} > 10" | bc`" -eq 1 ]
+#                 then
+#                     echo -e  "\e[31m impurity $Tempimpurity $impurity xxxx  \e[0m" 
+#                     if [ "`echo "${Tempimpurity} < ${impurity}" | bc`" -eq 1 ] 
+#                     then
+#                                     echo -e  "\e[31m --------------------------------------parando método $Tempimpurity $impurity $StopPoint  \e[0m"
+#                                     
+#                                     StopPoint=$(($StopPoint+1))
+#                         #break;
+#                     else
+#                         echo -e "\e[31m refresh impurity $Tempimpurity  \e[0m"
+#                         impurity=$Tempimpurity
+#                         StopPoint=0
+#                         
+#                         
+#                     fi
+#                     
+#                             
+#                 fi 
+# #                 entropyRel=$Entropy_temp_rel
+#                 sum=0
+#                 for i in ${memoryRelevant[@]}; do
+#                     let sum+=$i
+#                     
+#                 done
+#                 echo -e "\e[31m $N slop value is $sum  \e[0m"
+#                 if  [ ${#memoryRelevant[@]} -ge 5 ] && [ $start_slop -eq "1" ] 
+#                 then 
+#                 
+#                     if [ "$sum" -le "0" ] 
+#                     then
+#                         flag_slop=1
+#                         echo " stopping because slop equal zero"
+#                         break
+#                     fi
+#                     memoryRelevant=("${memoryRelevant[@]:1}")
+#                 fi
+               
+            #configure the next round size avoding outliers pairs 
+                aux=$((($ssarp_relevants*$L)/$b))  
+                if [ "$b" -eq 30 ] && [ "$ssarp_relevants" -eq 1 ]
+                then
+                    if [ $flag -ge 5 ]
+                    then
+                        flag=$(($flag+1))                        
+                    else                        
+                        Rel=$(($Rel+$aux*1000))                        
+                    fi          
+                        
+                else
+                      Rel=$(($Rel+$aux*1000))                      
+                fi
+               
+               
+                if [ $ssarp_relevants -eq 0 ] && [ $Rel -ge 5000 ]
+                then
+                    flag=$(($flag+1))        
+                 else
+                   
+                        flag=0
+                  
+                fi
+               
+               
+              
+               perda=$(($scal_relevantes-$ssarp_relevants))
+               perda_ac=$(($perda_ac+$perda))
+               echo "docs relevants $N   ssarp  $ssarp_relevants  total relvantes $scal_relevantes valor R $Rel  perda_ac $perda_ac  perda $perda" 
+               
+	       echo $RELFINDDOC $L $RELRATE $CURRENTREL $ssarp_relevants $Rel >> rel.rate.$TOPIC
+               sort rel.$TOPIC.fil | sed -e 's/$/ 1/' > prel.$TOPIC
+               
+               cut -d' ' -f1 prel.$TOPIC > rel.$TOPIC.fil
+                
+               
+               echo "$N $Rel $ssarp_relevants $total_relevantes $scal_relevantes" >> valor_R 
+               echo "$N $Rel $ssarp_relevants $total_relevantes $scal_relevantes" >> /tmp/saida_L2R_WithoutSVM_RF_$TOPIC
+              
+
+               NDUN=$((NDUN+L))
+               L=$((L+(L+9)/10))
+               tempN=$N
+               end=`echo $(($(date +%s%N)/1000000))`
+               runtime=$((end-start))
+              # echo "Loop $N time is $runtime"
+            fi
+		end=`echo $(($(date +%s%N)/1000000))`
+		runtime=$((end-start))
+		#echo "time $N $runtime"           
+        done        
+        
+     done
+     
+echo "final $rules $N $ssarp_relevants total relevantes $total_relevantes precisao $precisao revocacao $recall rotulados $r final $finalpares perda $perda_ac" 
+ #cat valor_R >> /tmp/saida_L2R_$TOPIC.RF
+# # performe stopping point as CORMARCK PAPER
+echo " 20: Estimate ρ̂  (* 1.05 ), as commented in the paper"
+    prevalence=`echo "scale=6; ($Rel * 1.05) / $NDOCS  " | bc`
+   
+    # compute 0.9*p*N to target 90% of recall
+    m=`echo "scale=6; ($prevalence * $NDOCS) * 0.95 " | bc`  
+    echo "prevalence value $prevalence and rpn= $m"            
+    int=${m%.*}
+#     int=`echo "scale=4; ($Rel * 0.90)*1.05 " | bc`
+      
+echo "# 19: Train the final classifier on all labelled documents."
+ 
+    cat ssarp[0-9][0-9].$TOPIC > seed.$TOPIC 
+    echo "seed size ` wc -l < seed.$TOPIC `"
+    cat seed.$TOPIC  | sort | join - rel.$TOPIC.fil | sed -e 's/^/1 /' | sort | uniq > temp
+    cat seed.$TOPIC  | sort | join -v1 - rel.$TOPIC.fil | shuf -n 50000 | sed -e 's/^/-1 /' | sort | uniq  >> temp
+    cut -d' ' -f2 temp | ../indexer ../$CORP.db $KEYSIZE $VALSIZE | cut -d' ' -f2- | paste -d' ' <(cut -d' ' -f1 temp) - | sort -n > trainset
+                                             
+    cut -f1 pout.svm.test.* | ../fixnum | cat -n | join -o2.2,1.2 -t$'\t' - docfils > inlr.out.$TOPIC    
+    sort -n -k2  inlr.out.$TOPIC  | tr -s '\t' ' '> newtopic.sort.$TOPIC
+
+    python3 selectT.py valor_R $int
+    
+    j=`cat flagOut `
+    
+    t=`wc -l < U$j`
+    echo "valor de $t"
+   
+    m=$(($NDOCS-$t))
+    echo "valor de $m"
+    tail -$m newtopic.sort.$TOPIC | cut -d' ' -f1   > result.$TOPIC
+
+    n=$(($NDOCS-$m))
+    tail -$NDOCS newtopic.sort.$TOPIC | cut -d' ' -f1 | head -$n > result_plus.$TOPIC
+    #cat x_posit_ssarp_end
+    
+
+    cat result.$TOPIC seed.$TOPIC  | sort | uniq > labeledPairs.$TOPIC    
+    
+   
+    echo "value of  t =$t value of j =$j value of m =$m"
+    
+    #compute the recal and precision values 
+    python2   ../doJudgementMain.py --topic=$TOPIC --judgefile=../judgement/qrels.$JUDGECLASS.list --input=labeledPairs.$TOPIC --output=relFull.$TOPIC --record=$TOPIC.record.full
+    #r=`cat labeledPairs.$TOPIC   | cut -d' ' -f1 | sort -k1 |  uniq | join - rel.$TOPIC.fil |  wc -l`
+    r=`wc -l < relFull.$TOPIC`
+    finalpares=`wc -l < labeledPairs.$TOPIC`
+    total=`cat ../judgement/qrels.$JUDGECLASS.list | grep $TOPIC | wc -l`
+    recall=`echo "scale=6; ($r / $total)" | bc`
+    precisao=`echo "scale=6; ($r / $finalpares)" | bc`
+    end=`echo $(($(date +%s%N)/1000000))`
+    runtime=$((end-start0))
+    
+    posit=`cat seed.$TOPIC  | sort | join - rel.$TOPIC.fil | uniq| wc -l`
+    negat=`cat seed.$TOPIC  | sort | join - rel.$TOPIC.fil -v1 | uniq| wc -l ` 
+    echo "final result Cormarck is $TOPIC $r ------$finalpares  Recall $recall  Precisao $precisao time $runtime posit  $posit $negat labellingEffort `wc -l < temp` perda_ac $perda_ac sliding_windows $sliding_windows rules $rules "
+    echo "paresPositivos trainingset $posit negativos $negat"
+
+#     ./script_temp.sh athome105  athome1.svmlite 3892000
+
+
+#stopping point as REVEAL paper    
+    cat newtopic.sort.$TOPIC  | cut -d' ' -f1 > result.$TOPIC
+    start=`echo $(($(date +%s%N)/1000000))`
+    Real_Rel=`echo "scale=0; ($Rel * 1.05) / 1000 " | bc`
+    .././script_stopping_after_Rbeta_icde.sh $TOPIC $file $Real_Rel $rules $sliding_windows
+    # 
+    end=`echo $(($(date +%s%N)/1000000))`
+    runtime=$((end-start0))
+#    

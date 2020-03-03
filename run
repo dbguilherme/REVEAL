@@ -1,0 +1,62 @@
+#!/bin/bash
+
+#./run actransvm_SCAL_athome athome104 20  logistic_short athome1.svmlite teste saida.0 athome104 5 
+
+#./run actransvm_SCAL_athome athome104 athome1.svmlite teste saida.0  5 
+#./run actransvm_SCAL_athome Hall Hall.svm.fil teste saida.Hall 
+
+
+if [ ! "$#" -eq "7" ] ; then
+   echo wrong parameter number expect: 
+   echo usage: ./run {script name} 
+   echo sliding windows size = 20
+   echo directory to run
+   echo dataset processed
+   echo out name 
+   echo beta
+   echo windows Size
+   echo  
+   #exit 1
+fi
+
+windows=$7
+beta=$6
+dir=logistic_short
+
+mkdir $4
+rm -rf $dir/$1.$2.tmp 
+mkdir $dir/$1.$2.tmp 
+pushd $dir/$1.$2.tmp 
+
+
+R=$?
+
+if [ "$windows" == "" ] ; then
+   export N=100;
+else
+   export N=$windows
+fi
+export L="00 `yes | head -$N | head -80 | cat -n | cut -f1 | sed -e '$d' -e 's/ *//' -e 's/^.$/0&/' | tr '\n' ' '`"
+
+if [ "$R" == "0" ] ; then
+   rm -f *
+   ln -s ../* .
+   cp -r ../../SSARP/ .
+   cp -r ../../$dir/trainSSARP.$3/*  SSARP/run/
+
+   sed -e "s/for x in 0 1 2 3 4 5 6 7 8 9 ; do/for x in $L ; do/"  -e 's/for y in 0 1 2 3 4 5 6 7 8 9 ; do/for y in "" ; do/'  do$1 > rrr
+   chmod +x rrr
+   echo "start in rrr------------ $2 $3  $beta $windows"
+   ./rrr $2 $3  $2 $beta $windows #&> $7
+   
+   cp $5 ../../$4/
+   cp -r      valor_R ../../$4/valor_R$2
+
+   popd 
+   echo  `pwd`
+   
+  
+fi
+
+exit
+

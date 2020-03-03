@@ -1,0 +1,23 @@
+Reading training data Reading test set 1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%[done]
+
+48019 total_occurs 1274 n_rules 7195 diff 7195 
+48007 total_occurs 1281 n_rules 7195 diff 7195 
+TRAIN_EMPTY=0 
+OCCURS_CMP=1 
+inserting instance 48019 0
+time: classify 0.251951
+time: create_itemset 0.019800
+time: get_THE_intersection 0.013789
+time: get_THE_score 0.001121
+time: get_THE_union 0.002021
+time: get_TOTAL_score 0.001148
+time: get_from_cache 0.140719
+time: induce_rules 0.212763
+time: insert_into_cache 0.012803
+time: lazy_active_classification 0.217433
+time: print_rules 0.000000
+time: project_training 0.001077
+time: read_test_set 0.008364
+time: read_training_set 0.025987
+time: reset_rules 0.000000
+
